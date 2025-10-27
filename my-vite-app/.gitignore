@@ -22,3 +22,10 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+ARCHITECTURE.md
+QUICK_START.md
+README.md
+SETUP_INSTRUCTIONS.md
+TESTING_GUIDE.md
+*.env
