@@ -20,7 +20,7 @@ import EmailIcon from '@mui/icons-material/Email';
 import WorkIcon from '@mui/icons-material/Work';
 import { useAppSelector, useAppDispatch } from '../store/hooks';
 import userService, { type UpdateUserDto } from '../services/userService';
-import { setUser } from '../store/slices/authSlice';
+import { fetchCurrentUser } from '../store/slices/authSlice';
 
 const Profile = () => {
   const dispatch = useAppDispatch();
@@ -61,16 +61,11 @@ const Profile = () => {
     setSuccess(null);
 
     try {
+      // Update profile on backend
       await userService.updateMyProfile(formData);
       
-      // Update the user in Redux store
-      dispatch(setUser({
-        ...user!,
-        firstName: formData.firstName,
-        lastName: formData.lastName,
-        skills: formData.skills,
-        bio: formData.bio,
-      }));
+      // Fetch the latest user data from backend to update Redux store
+      await dispatch(fetchCurrentUser()).unwrap();
 
       setSuccess('Profile updated successfully!');
       setIsEditing(false);

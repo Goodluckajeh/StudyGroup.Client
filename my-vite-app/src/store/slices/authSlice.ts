@@ -91,16 +91,31 @@ export const login = createAsyncThunk(
       // Store token in localStorage
       localStorage.setItem('token', token);
       
-      // Decode token to get user info
+      // Decode token to get basic user info
       const userInfo = getUserFromToken(token);
       
       console.log('User info from token:', userInfo); // Debug log
       
-      return {
-        token: token,
-        user: userInfo,
-        ...response.data,
-      };
+      // Fetch fresh user profile data from backend
+      try {
+        const profileResponse = await apiClient.get('/users/me');
+        const freshUserData = profileResponse.data.user || profileResponse.data;
+        console.log('✅ Fresh user data fetched:', freshUserData);
+        
+        return {
+          token: token,
+          user: freshUserData, // Use fresh data from backend instead of token data
+          ...response.data,
+        };
+      } catch (profileError) {
+        console.warn('Could not fetch fresh profile, using token data:', profileError);
+        // Fallback to token data if profile fetch fails
+        return {
+          token: token,
+          user: userInfo,
+          ...response.data,
+        };
+      }
     } catch (error: unknown) {
       console.error('Login error:', error);
       const err = error as { response?: { data?: { Error?: string }; status?: number }; message?: string };
@@ -119,6 +134,20 @@ export const login = createAsyncThunk(
 export const logout = createAsyncThunk('auth/logout', async () => {
   localStorage.removeItem('token');
 });
+
+// Fetch current user profile from backend
+export const fetchCurrentUser = createAsyncThunk(
+  'auth/fetchCurrentUser',
+  async (_, { rejectWithValue }) => {
+    try {
+      const response = await apiClient.get('/users/me');
+      return response.data.user || response.data;
+    } catch (error: unknown) {
+      const err = error as { response?: { data?: { Error?: string }; status?: number }; message?: string };
+      return rejectWithValue(err.response?.data?.Error || err.message || 'Failed to fetch user profile');
+    }
+  }
+);
 
 // Slice
 const authSlice = createSlice({
@@ -177,6 +206,19 @@ const authSlice = createSlice({
         state.token = null;
         state.isAuthenticated = false;
         state.error = null;
+      })
+      // Fetch current user
+      .addCase(fetchCurrentUser.pending, (state) => {
+        state.loading = true;
+      })
+      .addCase(fetchCurrentUser.fulfilled, (state, action) => {
+        state.loading = false;
+        state.user = action.payload;
+        state.error = null;
+      })
+      .addCase(fetchCurrentUser.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload as string;
       });
   },
 });

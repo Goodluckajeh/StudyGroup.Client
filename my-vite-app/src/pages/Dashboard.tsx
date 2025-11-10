@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom';
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Box,
   Typography,
@@ -18,9 +18,18 @@ import {
   ListItemButton,
   Collapse,
   CircularProgress,
+  Button,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogContentText,
+  DialogActions,
+  Alert,
+  Snackbar,
+  Menu,
+  MenuItem,
 } from '@mui/material';
 import MenuIcon from '@mui/icons-material/Menu';
-import ChatIcon from '@mui/icons-material/Chat';
 import GroupsIcon from '@mui/icons-material/Groups';
 import PersonIcon from '@mui/icons-material/Person';
 import LogoutIcon from '@mui/icons-material/Logout';
@@ -30,14 +39,24 @@ import ExpandMore from '@mui/icons-material/ExpandMore';
 import SchoolIcon from '@mui/icons-material/School';
 import CalendarTodayIcon from '@mui/icons-material/CalendarToday';
 import PeopleIcon from '@mui/icons-material/People';
+import ExitToAppIcon from '@mui/icons-material/ExitToApp';
+import RemoveCircleOutlineIcon from '@mui/icons-material/RemoveCircleOutline';
+import MoreVertIcon from '@mui/icons-material/MoreVert';
+import PhotoLibraryIcon from '@mui/icons-material/PhotoLibrary';
+import LinkIcon from '@mui/icons-material/Link';
+import CloseIcon from '@mui/icons-material/Close';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
 import { logout } from '../store/slices/authSlice';
+import { fetchMyGroups, leaveGroup as leaveGroupThunk, setSelectedGroup } from '../store/slices/studyGroupsSlice';
 import DiscoverGroups from '../components/DiscoverGroups';
 import Profile from '../components/Profile';
+import Chat from '../components/Chat';
+import ErrorBoundary from '../components/ErrorBoundary';
 import groupMemberService, { type GroupMembership } from '../services/groupMemberService';
+import messageService from '../services/messageService';
 import apiClient from '../config/api';
 
-type ViewType = 'messages' | 'discover' | 'profile' | 'groupChat';
+type ViewType = 'discover' | 'profile' | 'groupChat';
 
 interface GroupMember {
   groupMemberId: number;
@@ -47,19 +66,32 @@ interface GroupMember {
   email: string;
 }
 
+interface MediaItem {
+  messageId: number;
+  messageType: 'Image' | 'Link';
+  mediaUrl?: string;
+  content?: string;
+  senderName: string;
+  sentAt: string;
+}
+
 const Dashboard = () => {
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
   const { isAuthenticated, user } = useAppSelector((state) => state.auth);
+  const { myGroups, selectedGroup, loading: loadingGroups } = useAppSelector((state) => state.studyGroups);
   const [currentView, setCurrentView] = useState<ViewType>('groupChat');
-  const [selectedGroup, setSelectedGroup] = useState<GroupMembership | null>(null);
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [myGroups, setMyGroups] = useState<GroupMembership[]>([]);
   const [groupsOpen, setGroupsOpen] = useState(true);
-  const [dmsOpen, setDmsOpen] = useState(false);
-  const [loadingGroups, setLoadingGroups] = useState(true);
   const [groupMembers, setGroupMembers] = useState<Map<number, GroupMember[]>>(new Map());
   const [showMembers, setShowMembers] = useState(false);
+  const [leaveDialogOpen, setLeaveDialogOpen] = useState(false);
+  const [removeMemberDialog, setRemoveMemberDialog] = useState<{ open: boolean; member: GroupMember | null }>({ open: false, member: null });
+  const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' }>({ open: false, message: '', severity: 'success' });
+  const [sidebarAnchorEl, setSidebarAnchorEl] = useState<null | HTMLElement>(null);
+  const [sidebarView, setSidebarView] = useState<'members' | 'media'>('members');
+  const [groupMedia, setGroupMedia] = useState<Map<number, MediaItem[]>>(new Map());
+  const [loadingMedia, setLoadingMedia] = useState(false);
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -67,53 +99,13 @@ const Dashboard = () => {
     }
   }, [isAuthenticated, navigate]);
 
-  const fetchMyGroups = useCallback(async (options?: { preserveCurrentView?: boolean }) => {
-    if (!user?.userId) {
-      return;
-    }
-    
-    try {
-      setLoadingGroups(true);
-      const userId = typeof user.userId === 'string' ? parseInt(user.userId, 10) : user.userId;
-      
-      const response = await groupMemberService.getUserGroups(userId);
-      
-      // Extract the Membership objects from the response
-      const groups = response.groups.map(g => g.membership);
-      
-      setMyGroups(groups);
-      
-      // Auto-select first group if no group is selected and groups exist
-      if (groups.length > 0 && !options?.preserveCurrentView) {
-        let autoSelected = false;
-        setSelectedGroup((prev) => {
-          if (prev) {
-            return prev;
-          }
-          autoSelected = true;
-          return groups[0] ?? null;
-        });
-
-        if (autoSelected) {
-          setCurrentView('groupChat');
-        }
-      }
-    } catch (error: unknown) {
-      console.error('Failed to fetch user groups:', error);
-      const err = error as { response?: { data?: unknown; status?: number } };
-      console.error('Error response:', err.response?.data);
-      console.error('Error status:', err.response?.status);
-    } finally {
-      setLoadingGroups(false);
-    }
-  }, [user?.userId]);
-
-  // Fetch user's groups
+  // Fetch user's groups using Redux thunk
   useEffect(() => {
     if (user?.userId) {
-      fetchMyGroups();
+      const userId = typeof user.userId === 'string' ? parseInt(user.userId, 10) : user.userId;
+      dispatch(fetchMyGroups(userId));
     }
-  }, [user?.userId, fetchMyGroups]);
+  }, [user?.userId, dispatch]);
 
   const fetchGroupMembers = async (groupId: number) => {
     try {
@@ -125,23 +117,104 @@ const Dashboard = () => {
     }
   };
 
+  const fetchGroupMedia = async (groupId: number) => {
+    try {
+      setLoadingMedia(true);
+      // Get or create conversation for the group
+      const conversation = await messageService.getOrCreateGroupConversation(groupId);
+      if (!conversation || !conversation.conversationId) return;
+
+      // Fetch all messages
+      const messages = await messageService.getConversationMessages(conversation.conversationId);
+      
+      // Filter for media messages (Images and Links)
+      const mediaMessages: MediaItem[] = messages
+        .filter((msg: any) => msg.messageType === 'Image' || msg.messageType === 'Link')
+        .map((msg: any) => ({
+          messageId: msg.messageId,
+          messageType: msg.messageType,
+          mediaUrl: msg.mediaUrl,
+          content: msg.content,
+          senderName: msg.senderName,
+          sentAt: msg.sentAt,
+        }));
+
+      setGroupMedia(prev => new Map(prev).set(groupId, mediaMessages));
+    } catch (error) {
+      console.error('Failed to fetch group media:', error);
+    } finally {
+      setLoadingMedia(false);
+    }
+  };
+
   const handleGroupClick = (group: GroupMembership) => {
-    setSelectedGroup(group);
+    dispatch(setSelectedGroup(group));
     setCurrentView('groupChat');
     setShowMembers(false); // Reset members view when switching groups
   };
 
-  const handleShowMembers = () => {
-    setShowMembers(!showMembers);
-    // Fetch members if we don't have them and we're showing the panel
-    if (!showMembers && selectedGroup && !groupMembers.has(selectedGroup.groupId)) {
-      fetchGroupMembers(selectedGroup.groupId);
+  const handleSidebarMenuClick = (event: React.MouseEvent<HTMLElement>) => {
+    setSidebarAnchorEl(event.currentTarget);
+  };
+
+  const handleSidebarMenuClose = () => {
+    setSidebarAnchorEl(null);
+  };
+
+  const handleSidebarOptionSelect = (option: 'members' | 'media') => {
+    setSidebarView(option);
+    setShowMembers(true);
+    handleSidebarMenuClose();
+    
+    if (selectedGroup) {
+      // Fetch members if we're showing members and don't have them
+      if (option === 'members' && !groupMembers.has(selectedGroup.groupId)) {
+        fetchGroupMembers(selectedGroup.groupId);
+      }
+      // Always fetch fresh media when switching to media view
+      if (option === 'media') {
+        fetchGroupMedia(selectedGroup.groupId);
+      }
     }
   };
 
   const handleLogout = async () => {
     await dispatch(logout());
     navigate('/login');
+  };
+
+  const handleLeaveGroup = async () => {
+    if (!selectedGroup || !user?.userId) return;
+
+    try {
+      const userId = typeof user.userId === 'string' ? parseInt(user.userId, 10) : user.userId;
+      await dispatch(leaveGroupThunk({ groupMemberId: selectedGroup.groupMemberId, userId })).unwrap();
+      setSnackbar({ open: true, message: 'Successfully left the group', severity: 'success' });
+      setLeaveDialogOpen(false);
+      setCurrentView('discover');
+    } catch (error) {
+      console.error('Error leaving group:', error);
+      setSnackbar({ open: true, message: 'Failed to leave group', severity: 'error' });
+    }
+  };
+
+  const handleRemoveMember = async () => {
+    if (!removeMemberDialog.member || !selectedGroup || !user?.userId) return;
+
+    try {
+      await groupMemberService.removeMember(removeMemberDialog.member.groupMemberId);
+      setSnackbar({ open: true, message: 'Member removed successfully', severity: 'success' });
+      setRemoveMemberDialog({ open: false, member: null });
+      
+      // Refresh member list for this group
+      await fetchGroupMembers(selectedGroup.groupId);
+      // Refresh groups to update member count
+      const userId = typeof user.userId === 'string' ? parseInt(user.userId, 10) : user.userId;
+      dispatch(fetchMyGroups(userId));
+    } catch (error) {
+      console.error('Error removing member:', error);
+      setSnackbar({ open: true, message: 'Failed to remove member', severity: 'error' });
+    }
   };
 
   const handleDrawerToggle = () => {
@@ -164,8 +237,8 @@ const Dashboard = () => {
   // Sidebar content
   const drawer = (
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', bgcolor: '#3f0e40' }}>
-      {/* User Profile Section */}
-      <Box sx={{ p: 2, borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
+      {/* User Profile Section - Fixed at top */}
+      <Box sx={{ p: 2, borderBottom: '1px solid rgba(255,255,255,0.1)', flexShrink: 0 }}>
         <Stack direction="row" spacing={2} alignItems="center">
           <Avatar
             sx={{
@@ -206,44 +279,26 @@ const Dashboard = () => {
         </Stack>
       </Box>
 
-      {/* Navigation Menu */}
-      <List sx={{ flex: 1, pt: 2 }}>
-        {/* Direct Messages Collapsible Section */}
-        <ListItem disablePadding>
-          <ListItemButton
-            onClick={() => setDmsOpen(!dmsOpen)}
-            sx={{
-              py: 1.5,
-              px: 3,
-              '&:hover': {
-                bgcolor: 'rgba(255,255,255,0.08)',
-              },
-            }}
-          >
-            <ListItemIcon sx={{ minWidth: 40, color: 'white' }}>
-              <ChatIcon />
-            </ListItemIcon>
-            <ListItemText 
-              primary="Direct Messages"
-              primaryTypographyProps={{
-                sx: { color: 'white', fontWeight: 500 }
-              }}
-            />
-            {dmsOpen ? <ExpandLess sx={{ color: 'white' }} /> : <ExpandMore sx={{ color: 'white' }} />}
-          </ListItemButton>
-        </ListItem>
-
-        <Collapse in={dmsOpen} timeout="auto" unmountOnExit>
-          <List component="div" disablePadding>
-            <ListItem sx={{ pl: 7, py: 1 }}>
-              <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)', fontStyle: 'italic' }}>
-                No direct messages yet
-              </Typography>
-            </ListItem>
-            {/* TODO: Add DM list here when backend is ready */}
-          </List>
-        </Collapse>
-
+      {/* Navigation Menu - Scrollable section */}
+      <List sx={{ 
+        flex: 1, 
+        pt: 2, 
+        overflowY: 'auto',
+        overflowX: 'hidden',
+        '&::-webkit-scrollbar': {
+          width: '8px',
+        },
+        '&::-webkit-scrollbar-track': {
+          background: 'rgba(255,255,255,0.05)',
+        },
+        '&::-webkit-scrollbar-thumb': {
+          background: 'rgba(255,255,255,0.2)',
+          borderRadius: '4px',
+          '&:hover': {
+            background: 'rgba(255,255,255,0.3)',
+          },
+        },
+      }}>
         {/* My Groups Collapsible Section */}
         <ListItem disablePadding>
           <ListItemButton
@@ -409,8 +464,8 @@ const Dashboard = () => {
         </ListItem>
       </List>
 
-      {/* Logout Button */}
-      <Box sx={{ p: 2, borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+      {/* Logout Button - Fixed at bottom */}
+      <Box sx={{ p: 2, borderTop: '1px solid rgba(255,255,255,0.1)', flexShrink: 0 }}>
         <ListItemButton
           onClick={handleLogout}
           sx={{
@@ -493,7 +548,7 @@ const Dashboard = () => {
                   </Stack>
                 </Box>
                 <IconButton
-                  onClick={handleShowMembers}
+                  onClick={handleSidebarMenuClick}
                   sx={{
                     color: showMembers ? 'primary.main' : 'text.secondary',
                     '&:hover': {
@@ -501,8 +556,34 @@ const Dashboard = () => {
                     },
                   }}
                 >
-                  <PeopleIcon />
+                  <MoreVertIcon />
                 </IconButton>
+                <Menu
+                  anchorEl={sidebarAnchorEl}
+                  open={Boolean(sidebarAnchorEl)}
+                  onClose={handleSidebarMenuClose}
+                  anchorOrigin={{
+                    vertical: 'bottom',
+                    horizontal: 'right',
+                  }}
+                  transformOrigin={{
+                    vertical: 'top',
+                    horizontal: 'right',
+                  }}
+                >
+                  <MenuItem onClick={() => handleSidebarOptionSelect('members')}>
+                    <ListItemIcon>
+                      <PeopleIcon fontSize="small" />
+                    </ListItemIcon>
+                    <ListItemText>Members</ListItemText>
+                  </MenuItem>
+                  <MenuItem onClick={() => handleSidebarOptionSelect('media')}>
+                    <ListItemIcon>
+                      <PhotoLibraryIcon fontSize="small" />
+                    </ListItemIcon>
+                    <ListItemText>Media</ListItemText>
+                  </MenuItem>
+                </Menu>
               </Stack>
 
               {/* Group Details */}
@@ -530,24 +611,19 @@ const Dashboard = () => {
               {/* Chat Area */}
               <Box sx={{ 
                 flex: 1, 
-                p: 3, 
-                display: 'flex', 
-                alignItems: 'center', 
-                justifyContent: 'center',
+                display: 'flex',
+                flexDirection: 'column',
                 transition: 'all 0.3s ease',
               }}>
-                <Box sx={{ textAlign: 'center' }}>
-                  <ChatIcon sx={{ fontSize: 80, color: 'text.secondary', mb: 2 }} />
-                  <Typography variant="h5" gutterBottom color="text.secondary">
-                    Group Chat Coming Soon
-                  </Typography>
-                  <Typography variant="body1" color="text.secondary">
-                    Chat functionality will be implemented here
-                  </Typography>
-                </Box>
+                <ErrorBoundary>
+                  <Chat 
+                    studyGroupId={selectedGroup.groupId} 
+                    studyGroupName={selectedGroup.courseName}
+                  />
+                </ErrorBoundary>
               </Box>
 
-              {/* Members Sidebar */}
+              {/* Right Sidebar (Members/Media) */}
               {showMembers && (
                 <Paper 
                   elevation={0} 
@@ -565,22 +641,125 @@ const Dashboard = () => {
                   }}
                 >
                   <Box sx={{ p: 2, borderBottom: '1px solid', borderColor: 'divider' }}>
-                    <Typography variant="subtitle1" fontWeight={600}>
-                      Members ({selectedGroup.currentMemberCount})
-                    </Typography>
+                    <Stack direction="row" justifyContent="space-between" alignItems="center">
+                      <Typography variant="subtitle1" fontWeight={600}>
+                        {sidebarView === 'media' ? 'Media' : `Members (${selectedGroup.currentMemberCount})`}
+                      </Typography>
+                      <Stack direction="row" spacing={1} alignItems="center">
+                        {sidebarView === 'members' && selectedGroup.creatorId !== (typeof user?.userId === 'string' ? parseInt(user.userId) : user?.userId) && (
+                          <Button
+                            size="small"
+                            startIcon={<ExitToAppIcon />}
+                            onClick={() => setLeaveDialogOpen(true)}
+                            color="error"
+                            sx={{ textTransform: 'none' }}
+                          >
+                            Leave Group
+                          </Button>
+                        )}
+                        <IconButton
+                          size="small"
+                          onClick={() => setShowMembers(false)}
+                          sx={{ ml: 1 }}
+                        >
+                          <CloseIcon />
+                        </IconButton>
+                      </Stack>
+                    </Stack>
                   </Box>
                   
                   <Box sx={{ flex: 1, overflow: 'auto', p: 1 }}>
-                    {groupMembers.get(selectedGroup.groupId) ? (
-                      groupMembers.get(selectedGroup.groupId)!.length === 0 ? (
+                    {sidebarView === 'media' ? (
+                      loadingMedia ? (
                         <Box sx={{ textAlign: 'center', py: 4 }}>
+                          <CircularProgress size={24} />
+                          <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                            Loading media...
+                          </Typography>
+                        </Box>
+                      ) : groupMedia.get(selectedGroup.groupId)?.length === 0 ? (
+                        <Box sx={{ textAlign: 'center', py: 4 }}>
+                          <PhotoLibraryIcon sx={{ fontSize: 48, color: 'text.secondary', mb: 2 }} />
                           <Typography variant="body2" color="text.secondary">
-                            No members yet
+                            No media shared yet
                           </Typography>
                         </Box>
                       ) : (
-                        <Stack spacing={1}>
-                          {groupMembers.get(selectedGroup.groupId)!.map((member) => (
+                        <Stack spacing={2}>
+                          {groupMedia.get(selectedGroup.groupId)?.map((media) => (
+                            <Paper
+                              key={media.messageId}
+                              elevation={0}
+                              sx={{
+                                p: 1.5,
+                                bgcolor: 'grey.50',
+                                borderRadius: 1,
+                              }}
+                            >
+                              {media.messageType === 'Image' ? (
+                                <Box>
+                                  <img
+                                    src={media.mediaUrl?.startsWith('http') ? media.mediaUrl : `https://localhost:43960${media.mediaUrl}`}
+                                    alt="Shared"
+                                    style={{
+                                      width: '100%',
+                                      borderRadius: '4px',
+                                      marginBottom: '8px',
+                                    }}
+                                    onError={(e) => {
+                                      e.currentTarget.style.display = 'none';
+                                    }}
+                                  />
+                                  <Typography variant="caption" color="text.secondary">
+                                    Shared by {media.senderName}
+                                  </Typography>
+                                </Box>
+                              ) : (
+                                <Box>
+                                  <Stack direction="row" spacing={0.5} alignItems="center" sx={{ mb: 0.5 }}>
+                                    <LinkIcon fontSize="small" color="primary" />
+                                    <Typography variant="body2" fontWeight={600}>
+                                      {media.content || 'Link'}
+                                    </Typography>
+                                  </Stack>
+                                  <Typography
+                                    variant="caption"
+                                    sx={{
+                                      display: 'block',
+                                      mb: 0.5,
+                                      wordBreak: 'break-all',
+                                      color: 'primary.main',
+                                      textDecoration: 'none',
+                                      cursor: 'pointer',
+                                      '&:hover': { textDecoration: 'underline' },
+                                    }}
+                                    component="a"
+                                    href={media.mediaUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                  >
+                                    {media.mediaUrl}
+                                  </Typography>
+                                  <Typography variant="caption" color="text.secondary">
+                                    Shared by {media.senderName}
+                                  </Typography>
+                                </Box>
+                              )}
+                            </Paper>
+                          ))}
+                        </Stack>
+                      )
+                    ) : (
+                      groupMembers.get(selectedGroup.groupId) ? (
+                        groupMembers.get(selectedGroup.groupId)!.length === 0 ? (
+                          <Box sx={{ textAlign: 'center', py: 4 }}>
+                            <Typography variant="body2" color="text.secondary">
+                              No members yet
+                            </Typography>
+                          </Box>
+                        ) : (
+                          <Stack spacing={1}>
+                            {groupMembers.get(selectedGroup.groupId)!.map((member) => (
                             <Paper 
                               key={member.groupMemberId}
                               elevation={0}
@@ -604,13 +783,24 @@ const Dashboard = () => {
                                   {member.email}
                                 </Typography>
                               </Box>
-                              {selectedGroup.creatorId === member.userId && (
+                              {selectedGroup.creatorId === member.userId ? (
                                 <Chip 
                                   label="Creator" 
                                   size="small" 
                                   color="primary"
                                   sx={{ fontSize: '0.7rem', height: 18 }}
                                 />
+                              ) : (
+                                selectedGroup.creatorId === (typeof user?.userId === 'string' ? parseInt(user.userId) : user?.userId) && (
+                                  <IconButton
+                                    size="small"
+                                    color="error"
+                                    onClick={() => setRemoveMemberDialog({ open: true, member })}
+                                    sx={{ ml: 1 }}
+                                  >
+                                    <RemoveCircleOutlineIcon fontSize="small" />
+                                  </IconButton>
+                                )
                               )}
                             </Paper>
                           ))}
@@ -623,6 +813,7 @@ const Dashboard = () => {
                           Loading members...
                         </Typography>
                       </Box>
+                    )
                     )}
                   </Box>
                 </Paper>
@@ -630,21 +821,14 @@ const Dashboard = () => {
             </Box>
           </Box>
         );
-
-      case 'messages':
-        return (
-          <Box sx={{ p: 4 }}>
-            <Typography variant="h4" gutterBottom>
-              Direct Messages
-            </Typography>
-            <Typography variant="body1" color="text.secondary" sx={{ mt: 2 }}>
-              Coming soon! Direct messages with other students will appear here.
-            </Typography>
-          </Box>
-        );
       
       case 'discover':
-        return <DiscoverGroups onGroupChange={() => fetchMyGroups({ preserveCurrentView: true })} />;
+        return <DiscoverGroups onGroupChange={() => {
+          if (user?.userId) {
+            const userId = typeof user.userId === 'string' ? parseInt(user.userId, 10) : user.userId;
+            dispatch(fetchMyGroups(userId));
+          }
+        }} />;
       
       case 'profile':
         return <Profile />;
@@ -738,6 +922,60 @@ const Dashboard = () => {
         <Toolbar sx={{ display: { sm: 'none' } }} />
         {renderContent()}
       </Box>
+
+      {/* Leave Group Dialog */}
+      <Dialog
+        open={leaveDialogOpen}
+        onClose={() => setLeaveDialogOpen(false)}
+      >
+        <DialogTitle>Leave Study Group</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            Are you sure you want to leave "{selectedGroup?.courseName}"? You'll need to join again if you change your mind.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setLeaveDialogOpen(false)}>Cancel</Button>
+          <Button onClick={handleLeaveGroup} color="error" variant="contained">
+            Leave Group
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Remove Member Dialog */}
+      <Dialog
+        open={removeMemberDialog.open}
+        onClose={() => setRemoveMemberDialog({ open: false, member: null })}
+      >
+        <DialogTitle>Remove Member</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            Are you sure you want to remove {removeMemberDialog.member?.firstName} {removeMemberDialog.member?.lastName} from the group?
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setRemoveMemberDialog({ open: false, member: null })}>Cancel</Button>
+          <Button onClick={handleRemoveMember} color="error" variant="contained">
+            Remove
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Snackbar for notifications */}
+      <Snackbar
+        open={snackbar.open}
+        autoHideDuration={4000}
+        onClose={() => setSnackbar({ ...snackbar, open: false })}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert
+          onClose={() => setSnackbar({ ...snackbar, open: false })}
+          severity={snackbar.severity}
+          sx={{ width: '100%' }}
+        >
+          {snackbar.message}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 };

@@ -41,7 +41,7 @@ const Discover = () => {
           <Button
             color="inherit"
             startIcon={<LoginIcon />}
-            onClick={() => navigate('/auth')}
+            onClick={() => navigate('/login')}
             sx={{ textTransform: 'none', fontWeight: 600 }}
           >
             Log In

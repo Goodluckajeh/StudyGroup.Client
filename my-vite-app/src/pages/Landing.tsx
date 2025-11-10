@@ -71,7 +71,7 @@ const Landing = () => {
             <Button
               variant="contained"
               size="large"
-              onClick={() => navigate('/auth')}
+              onClick={() => navigate('/login')}
               sx={{
                 py: 2,
                 fontSize: '1.1rem',

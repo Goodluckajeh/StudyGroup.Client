@@ -26,7 +26,8 @@ import SearchIcon from '@mui/icons-material/Search';
 import PersonIcon from '@mui/icons-material/Person';
 import AddIcon from '@mui/icons-material/Add';
 import { studyGroupService, type StudyGroup } from '../services/studyGroupService';
-import { useAppSelector } from '../store/hooks';
+import { useAppSelector, useAppDispatch } from '../store/hooks';
+import { fetchMyGroups } from '../store/slices/studyGroupsSlice';
 import CreateGroupDialog from './CreateGroupDialog';
 import groupMemberService from '../services/groupMemberService';
 
@@ -35,6 +36,7 @@ interface DiscoverGroupsProps {
 }
 
 const DiscoverGroups = ({ onGroupChange }: DiscoverGroupsProps) => {
+  const dispatch = useAppDispatch();
   const { user } = useAppSelector((state) => state.auth);
   const [groups, setGroups] = useState<StudyGroup[]>([]);
   const [filteredGroups, setFilteredGroups] = useState<StudyGroup[]>([]);
@@ -119,7 +121,9 @@ const DiscoverGroups = ({ onGroupChange }: DiscoverGroupsProps) => {
       await fetchGroups();
       // Refresh user memberships
       await fetchUserMemberships();
-      // Refresh sidebar group list
+      // Refresh sidebar group list using Redux
+      dispatch(fetchMyGroups(userId));
+      // Also call the callback if provided
       if (onGroupChange) {
         onGroupChange();
       }
@@ -141,7 +145,8 @@ const DiscoverGroups = ({ onGroupChange }: DiscoverGroupsProps) => {
     fetchGroups();
     // Refresh user memberships after creating a group
     fetchUserMemberships();
-    // Refresh sidebar group list
+    // Groups are already refreshed in CreateGroupDialog via Redux
+    // Also call the callback if provided
     if (onGroupChange) {
       onGroupChange();
     }
@@ -395,12 +400,14 @@ const DiscoverGroups = ({ onGroupChange }: DiscoverGroupsProps) => {
         </Box>
       )}
 
-      {/* Create Group Dialog */}
-      <CreateGroupDialog
-        open={createDialogOpen}
-        onClose={() => setCreateDialogOpen(false)}
-        onSuccess={handleCreateSuccess}
-      />
+      {/* Create Group Dialog - Only render for authenticated users */}
+      {user?.userId && (
+        <CreateGroupDialog
+          open={createDialogOpen}
+          onClose={() => setCreateDialogOpen(false)}
+          onSuccess={handleCreateSuccess}
+        />
+      )}
 
       {/* Login Required Dialog */}
       <Dialog
@@ -422,7 +429,7 @@ const DiscoverGroups = ({ onGroupChange }: DiscoverGroupsProps) => {
           <Button
             onClick={() => {
               setLoginDialogOpen(false);
-              window.location.href = '/auth';
+              window.location.href = '/login';
             }}
             variant="contained"
             autoFocus

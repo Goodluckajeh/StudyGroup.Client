@@ -11,9 +11,9 @@ import {
   Alert,
   Autocomplete,
 } from '@mui/material';
-import { studyGroupService } from '../services/studyGroupService';
 import { courseService, type Course } from '../services/courseService';
-import { useAppSelector } from '../store/hooks';
+import { useAppSelector, useAppDispatch } from '../store/hooks';
+import { createGroup, fetchMyGroups } from '../store/slices/studyGroupsSlice';
 
 interface CreateGroupDialogProps {
   open: boolean;
@@ -22,6 +22,7 @@ interface CreateGroupDialogProps {
 }
 
 const CreateGroupDialog = ({ open, onClose, onSuccess }: CreateGroupDialogProps) => {
+  const dispatch = useAppDispatch();
   const { user } = useAppSelector((state) => state.auth);
   const [formData, setFormData] = useState({
     selectedCourse: null as Course | null,
@@ -71,6 +72,11 @@ const CreateGroupDialog = ({ open, onClose, onSuccess }: CreateGroupDialogProps)
       return;
     }
 
+    if (!formData.topic.trim()) {
+      setError('Please enter a topic for the study group');
+      return;
+    }
+
     if (!user?.userId) {
       setError('You must be logged in to create a group');
       return;
@@ -85,12 +91,16 @@ const CreateGroupDialog = ({ open, onClose, onSuccess }: CreateGroupDialogProps)
       const groupData = {
         courseName: formData.selectedCourse.courseName,
         creatorId: userId,
-        topic: formData.topic.trim() || undefined,
+        topic: formData.topic.trim(),
         timeSlot: formData.timeSlot.trim() || undefined,
         description: formData.description.trim() || undefined,
       };
 
-      await studyGroupService.createGroup(groupData);
+      // Create group using Redux thunk
+      await dispatch(createGroup(groupData)).unwrap();
+      
+      // Refresh the groups list
+      await dispatch(fetchMyGroups(userId)).unwrap();
       
       // Reset form
       setFormData({
@@ -196,8 +206,9 @@ const CreateGroupDialog = ({ open, onClose, onSuccess }: CreateGroupDialogProps)
 
             <TextField
               name="topic"
-              label="Topic (Optional)"
+              label="Topic"
               fullWidth
+              required
               value={formData.topic}
               onChange={handleChange}
               placeholder="e.g., Exam Prep, Homework Help, Final Project"
