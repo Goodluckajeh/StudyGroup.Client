@@ -114,22 +114,37 @@ const Chat = ({ studyGroupId, studyGroupName }: ChatProps) => {
   }, [studyGroupId, user?.userId, dispatch]);
 
   useEffect(() => {
-    // Only load conversation when studyGroupId changes
+    // Load conversation and join SignalR room when studyGroupId changes
     loadConversation();
+    
+    // Cleanup: leave conversation when switching groups
+    return () => {
+      const currentConv = conversationRef.current;
+      if (currentConv) {
+        chatService.leaveConversation(currentConv.conversationId);
+      }
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [studyGroupId, user?.userId]);
 
-  // Setup SignalR event handlers - do this once when component mounts
+  // Setup SignalR event handlers - keep them active and use current conversation from Redux
   useEffect(() => {
     const handleReceiveMessage = (data: any) => {
+      console.log('📨 SignalR ReceiveMessage event:', data);
+      
       // Backend sends: { ConversationId, Message, Type } which becomes { conversationId, message, type } in camelCase
       // Extract the actual message object
       const message = data.message || data.Message || data;
       
-      // Use ref instead of state to get current conversation value
-      const currentConversation = conversationRef.current;
+      console.log('📨 Parsed message:', message);
+      console.log('📨 Current conversation from ref:', conversationRef.current);
+      console.log('📨 Current conversation from Redux:', conversation);
       
-      if (currentConversation && message.conversationId === currentConversation.conversationId) {
+      // Check against the current conversation ID
+      // Use the conversation from Redux state which is always up-to-date
+      if (conversation && message.conversationId === conversation.conversationId) {
+        console.log('✅ Message belongs to current conversation, adding to Redux');
+        
         // Add message to Redux store
         dispatch(addMessage(message));
         
@@ -142,32 +157,31 @@ const Chat = ({ studyGroupId, studyGroupName }: ChatProps) => {
           : user?.userId;
         
         if (message.senderId !== currentUserId) {
-          messageService.markAsRead(currentConversation.conversationId);
+          messageService.markAsRead(conversation.conversationId);
         }
+      } else {
+        console.log('⚠️ Message not for current conversation, ignoring');
       }
     };
 
     const handleMessageEdited = (message: Message) => {
-      const currentConversation = conversationRef.current;
-      if (currentConversation) {
-        dispatch(updateMessageAction({ conversationId: currentConversation.conversationId, message }));
+      if (conversation) {
+        dispatch(updateMessageAction({ conversationId: conversation.conversationId, message }));
       }
     };
 
     const handleMessageDeleted = (messageId: number) => {
-      const currentConversation = conversationRef.current;
-      if (currentConversation) {
-        dispatch(deleteMessageAction({ conversationId: currentConversation.conversationId, messageId }));
+      if (conversation) {
+        dispatch(deleteMessageAction({ conversationId: conversation.conversationId, messageId }));
       }
     };
 
     const handleUserTyping = (convId: number, userId: number, userName: string) => {
-      const currentConversation = conversationRef.current;
       const currentUserId = typeof user?.userId === 'string' 
         ? parseInt(user.userId, 10) 
         : user?.userId;
         
-      if (currentConversation && convId === currentConversation.conversationId && userId !== currentUserId) {
+      if (conversation && convId === conversation.conversationId && userId !== currentUserId) {
         setTypingUsers((prev) => new Set(prev).add(userName));
         
         // Clear typing indicator after 3 seconds
@@ -181,19 +195,15 @@ const Chat = ({ studyGroupId, studyGroupName }: ChatProps) => {
       }
     };
 
+    // Register SignalR event handlers
     chatService.onReceiveMessage(handleReceiveMessage);
     chatService.onMessageEdited(handleMessageEdited);
     chatService.onMessageDeleted(handleMessageDeleted);
     chatService.onUserTyping(handleUserTyping);
 
-    // Cleanup
-    return () => {
-      const currentConv = conversationRef.current;
-      if (currentConv) {
-        chatService.leaveConversation(currentConv.conversationId);
-      }
-    };
-  }, [dispatch, user?.userId]); // Include dispatch and user in dependencies
+    // No cleanup here - we want handlers to stay active
+    // Cleanup is handled in the studyGroupId useEffect
+  }, [dispatch, user?.userId, conversation]); // Add conversation as dependency so handlers update when it changes
 
   const handleSendMessage = async () => {
     if (!newMessage.trim() || !conversation || !user?.userId || sending) return;
