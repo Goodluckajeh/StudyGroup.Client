@@ -106,7 +106,7 @@ const Chat = ({ studyGroupId, studyGroupName }: ChatProps) => {
 
       scrollToBottom();
     } catch (err) {
-      console.error('❌ Error loading conversation:', err);
+      console.error(' Error loading conversation:', err);
       setError(`Failed to load conversation: ${err instanceof Error ? err.message : 'Unknown error'}`);
     } finally {
       loadingRef.current = false;
@@ -130,20 +130,20 @@ const Chat = ({ studyGroupId, studyGroupName }: ChatProps) => {
   // Setup SignalR event handlers - keep them active and use current conversation from Redux
   useEffect(() => {
     const handleReceiveMessage = (data: any) => {
-      console.log('📨 SignalR ReceiveMessage event:', data);
+      console.log(' SignalR ReceiveMessage event:', data);
       
       // Backend sends: { ConversationId, Message, Type } which becomes { conversationId, message, type } in camelCase
       // Extract the actual message object
       const message = data.message || data.Message || data;
       
-      console.log('📨 Parsed message:', message);
-      console.log('📨 Current conversation from ref:', conversationRef.current);
-      console.log('📨 Current conversation from Redux:', conversation);
+      console.log(' Parsed message:', message);
+      console.log(' Current conversation from ref:', conversationRef.current);
+      console.log(' Current conversation from Redux:', conversation);
       
       // Check against the current conversation ID
       // Use the conversation from Redux state which is always up-to-date
       if (conversation && message.conversationId === conversation.conversationId) {
-        console.log('✅ Message belongs to current conversation, adding to Redux');
+        console.log(' Message belongs to current conversation, adding to Redux');
         
         // Add message to Redux store
         dispatch(addMessage(message));
@@ -160,7 +160,7 @@ const Chat = ({ studyGroupId, studyGroupName }: ChatProps) => {
           messageService.markAsRead(conversation.conversationId);
         }
       } else {
-        console.log('⚠️ Message not for current conversation, ignoring');
+        console.log(' Message not for current conversation, ignoring');
       }
     };
 
@@ -201,9 +201,7 @@ const Chat = ({ studyGroupId, studyGroupName }: ChatProps) => {
     chatService.onMessageDeleted(handleMessageDeleted);
     chatService.onUserTyping(handleUserTyping);
 
-    // No cleanup here - we want handlers to stay active
-    // Cleanup is handled in the studyGroupId useEffect
-  }, [dispatch, user?.userId, conversation]); // Add conversation as dependency so handlers update when it changes
+  }, [dispatch, user?.userId, conversation]);
 
   const handleSendMessage = async () => {
     if (!newMessage.trim() || !conversation || !user?.userId || sending) return;
@@ -227,9 +225,8 @@ const Chat = ({ studyGroupId, studyGroupName }: ChatProps) => {
       setTimeout(() => scrollToBottom(), 100);
       setNewMessage('');
     } catch (err) {
-      console.error('❌ Error sending message:', err);
+      console.error(' Error sending message:', err);
       setError('Failed to send message');
-      // Don't clear the message input on error so user can retry
     } finally {
       setSending(false);
     }
@@ -308,7 +305,7 @@ const Chat = ({ studyGroupId, studyGroupName }: ChatProps) => {
       setImagePreview('');
       setImageDialogOpen(false);
     } catch (err) {
-      console.error('❌ Error sending image:', err);
+      console.error(' Error sending image:', err);
       setError('Failed to send image');
     } finally {
       setSending(false);
@@ -340,7 +337,7 @@ const Chat = ({ studyGroupId, studyGroupName }: ChatProps) => {
       setLinkTitle('');
       setLinkDialogOpen(false);
     } catch (err) {
-      console.error('❌ Error sending link:', err);
+      console.error(' Error sending link:', err);
       setError('Failed to send link');
     } finally {
       setSending(false);

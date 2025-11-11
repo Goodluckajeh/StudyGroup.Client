@@ -29,16 +29,16 @@ apiClient.interceptors.request.use(
       if (token) {
         // Backend expects just the token without 'Bearer ' prefix
         config.headers.Authorization = token;
-        console.log('✅ Added Authorization header (token only, no Bearer prefix)');
+        console.log(' Added Authorization header (token only, no Bearer prefix)');
       }
     } else {
-      console.log('⚠️ Skipping Authorization header for auth request');
+      console.log(' Skipping Authorization header for auth request');
     }
     
     return config;
   },
   (error) => {
-    console.error('❌ Request interceptor error:', error);
+    console.error(' Request interceptor error:', error);
     return Promise.reject(error);
   }
 );
@@ -46,7 +46,7 @@ apiClient.interceptors.request.use(
 // Response interceptor to handle errors
 apiClient.interceptors.response.use(
   (response) => {
-    console.log('✅ Response received:', {
+    console.log(' Response received:', {
       url: response.config.url,
       status: response.status,
       data: response.data
@@ -54,7 +54,7 @@ apiClient.interceptors.response.use(
     return response;
   },
   (error) => {
-    console.error('❌ Response error:', {
+    console.error(' Response error:', {
       url: error.config?.url,
       status: error.response?.status,
       statusText: error.response?.statusText,
@@ -72,7 +72,7 @@ apiClient.interceptors.response.use(
     if (error.response?.status === 401 && !isAuthRequest) {
       const token = localStorage.getItem('token');
       if (token) {
-        console.warn('🔓 Token expired or invalid - redirecting to login');
+        console.warn(' Token expired or invalid - redirecting to login');
         // Token expired or invalid - redirect to login
         localStorage.removeItem('token');
         window.location.href = '/login';

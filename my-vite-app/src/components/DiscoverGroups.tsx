@@ -115,19 +115,13 @@ const DiscoverGroups = ({ onGroupChange }: DiscoverGroupsProps) => {
       await studyGroupService.joinGroup(groupId, userId);
       
       setSuccessMessage('Successfully joined the group! 🎉');
-      // Add this group to user's membership set
       setUserGroupIds(prev => new Set(prev).add(groupId));
-      // Refresh groups to get updated member counts
       await fetchGroups();
-      // Refresh user memberships
       await fetchUserMemberships();
-      // Refresh sidebar group list using Redux
       dispatch(fetchMyGroups(userId));
-      // Also call the callback if provided
       if (onGroupChange) {
         onGroupChange();
       }
-      // Clear success message after 3 seconds
       setTimeout(() => setSuccessMessage(null), 3000);
     } catch (err: unknown) {
       console.error('Error joining group:', err);

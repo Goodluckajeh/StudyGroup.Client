@@ -17,14 +17,14 @@ export const messageService = {
       `/messages/conversations/${conversationId}/messages`,
       { params: { skip, take } }
     );
-    // Backend returns { messages: [...], conversationId: ..., skip: ..., take: ..., count: ... }
+
     return response.data.messages || response.data.Messages || [];
   },
 
   // Send a new message
   async sendMessage(messageData: CreateMessageDto): Promise<Message> {
     const response = await apiClient.post('/messages', messageData);
-    // ASP.NET Core serializes with camelCase by default
+
     return response.data.message || response.data.Message;
   },
 
@@ -70,7 +70,7 @@ export const messageService = {
     const conversation = response.data.conversation || response.data.Conversation;
     
     if (!conversation) {
-      console.error('❌ No conversation in response! Response data:', response.data);
+      console.error(' No conversation in response! Response data:', response.data);
       throw new Error('No conversation data returned from API');
     }
     

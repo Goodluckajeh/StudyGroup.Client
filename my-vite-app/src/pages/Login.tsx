@@ -74,12 +74,10 @@ const Login = () => {
       ...prev,
       [name]: value,
     }));
-    // Clear validation error for this field
     setValidationErrors((prev) => ({
       ...prev,
       [name]: '',
     }));
-    // Clear Redux error when user starts typing
     if (error) {
       dispatch(clearError());
     }
@@ -95,12 +93,10 @@ const Login = () => {
 
     try {
       const result = await dispatch(login(formData)).unwrap();
-      // Only navigate on successful login - will redirect to intended page
       if (result) {
         navigate(from, { replace: true });
       }
     } catch (err) {
-      // Error is handled by Redux - form stays populated
       console.error('Login failed:', err);
     }
   };

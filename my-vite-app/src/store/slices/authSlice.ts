@@ -71,7 +71,6 @@ export const login = createAsyncThunk(
       
       console.log('Login response:', response.data); // Debug log
       
-      // Try both 'Token' (capital T) and 'token' (lowercase t)
       const token = response.data.Token || response.data.token;
       
       // Validate token before storing
@@ -81,7 +80,7 @@ export const login = createAsyncThunk(
         return rejectWithValue('No token received from server');
       }
 
-      console.log('✅ Token received:', token.substring(0, 20) + '...');
+      console.log(' Token received:', token.substring(0, 20) + '...');
 
       // Check if token is expired
       if (isTokenExpired(token)) {
@@ -100,7 +99,7 @@ export const login = createAsyncThunk(
       try {
         const profileResponse = await apiClient.get('/users/me');
         const freshUserData = profileResponse.data.user || profileResponse.data;
-        console.log('✅ Fresh user data fetched:', freshUserData);
+        console.log(' Fresh user data fetched:', freshUserData);
         
         return {
           token: token,

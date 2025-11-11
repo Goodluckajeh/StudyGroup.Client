@@ -14,7 +14,6 @@ export interface StudyGroup {
   creatorLastName?: string;
   createdAt?: string;
   isActive?: boolean;
-  // Deprecated fields (for backward compatibility)
   groupName?: string;
   maxMembers?: number;
   currentMemberCount?: number;

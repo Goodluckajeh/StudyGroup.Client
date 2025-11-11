@@ -80,7 +80,18 @@ const Dashboard = () => {
   const navigate = useNavigate();
   const { isAuthenticated, user } = useAppSelector((state) => state.auth);
   const { myGroups, selectedGroup, loading: loadingGroups } = useAppSelector((state) => state.studyGroups);
-  const [currentView, setCurrentView] = useState<ViewType>('groupChat');
+  
+  // Preserve the current view in localStorage to prevent unwanted view changes
+  const [currentView, setCurrentViewState] = useState<ViewType>(() => {
+    const savedView = localStorage.getItem('dashboardCurrentView');
+    return (savedView as ViewType) || 'groupChat';
+  });
+
+  // Wrapper to save view to localStorage whenever it changes
+  const setCurrentView = (view: ViewType) => {
+    localStorage.setItem('dashboardCurrentView', view);
+    setCurrentViewState(view);
+  };
   const [mobileOpen, setMobileOpen] = useState(false);
   const [groupsOpen, setGroupsOpen] = useState(true);
   const [groupMembers, setGroupMembers] = useState<Map<number, GroupMember[]>>(new Map());
@@ -99,13 +110,14 @@ const Dashboard = () => {
     }
   }, [isAuthenticated, navigate]);
 
-  // Fetch user's groups using Redux thunk
+  // Fetch user's groups using Redux thunk - only when userId actually changes
   useEffect(() => {
-    if (user?.userId) {
+    if (user?.userId && myGroups.length === 0) {
+      // Only fetch if we don't have groups yet
       const userId = typeof user.userId === 'string' ? parseInt(user.userId, 10) : user.userId;
       dispatch(fetchMyGroups(userId));
     }
-  }, [user?.userId, dispatch]);
+  }, [user?.userId, dispatch, myGroups.length]);
 
   const fetchGroupMembers = async (groupId: number) => {
     try {
